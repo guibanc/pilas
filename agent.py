@@ -204,7 +204,7 @@ async def _responder_gemini(historico, mensagem, user_id, nome):
             resp = await _gemini_generate(clients, contents, cfg)
         except _QuotaError:
             if texto_final:  # já tinha algo útil; devolve isso
-                return texto_final, executor.charts, contents
+                return texto_final, executor.charts, executor.docs
             raise  # sem nada: deixa o bot responder com a dica amigável
 
         cand = resp.candidates[0] if resp.candidates else None
@@ -232,7 +232,7 @@ async def _responder_gemini(historico, mensagem, user_id, nome):
     else:
         texto_final = texto_final or "Travei aqui processando isso. Tenta de novo? 🐷"
 
-    return texto_final, executor.charts, contents
+    return texto_final, executor.charts, executor.docs
 
 
 # =========================== ANTHROPIC (pago) ==========================
@@ -298,4 +298,4 @@ async def _responder_anthropic(historico, mensagem, user_id, nome):
     else:
         texto_final = texto_final or "Travei aqui processando isso. Tenta de novo? 🐷"
 
-    return texto_final, executor.charts, messages
+    return texto_final, executor.charts, executor.docs

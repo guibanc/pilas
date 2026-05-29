@@ -108,6 +108,20 @@ TOOLS = [
         },
     },
     {
+        "name": "generate_dashboard",
+        "description": (
+            "Gera um relatório completo em PDF (dashboard) com saldo, gastos por "
+            "categoria, top categorias e evolução diária. Use quando pedirem "
+            "'dashboard', 'relatório', 'PDF' ou um resumo bonitão do período."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "periodo": {"type": "string", "description": "semana, mes, mes_passado, ano..."}
+            },
+        },
+    },
+    {
         "name": "get_categories",
         "description": "Lista as categorias existentes.",
         "input_schema": {"type": "object", "properties": {}},
@@ -133,7 +147,8 @@ class ToolExecutor:
 
     def __init__(self, user_id: int):
         self.user_id = user_id
-        self.charts: list[str] = []  # caminhos de PNG a enviar
+        self.charts: list[str] = []  # PNGs a enviar (send_photo)
+        self.docs: list[str] = []    # PDFs a enviar (send_document)
 
     # -------- dispatcher --------
     def run(self, name: str, args: dict) -> str:
@@ -249,6 +264,15 @@ class ToolExecutor:
             self.charts.append(path)
             return f"OK, gráfico gerado e será enviado. {resumo}"
         return resumo  # ex: "Sem gastos no período"
+
+    def _generate_dashboard(self, a):
+        path, resumo = charts.dashboard_pdf(
+            self.user_id, a.get("periodo"), a.get("nome", "")
+        )
+        if path:
+            self.docs.append(path)
+            return f"OK, dashboard em PDF gerado e será enviado. {resumo}"
+        return resumo
 
     def _get_categories(self, a):
         cats = database.list_categories()

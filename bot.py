@@ -24,6 +24,7 @@ import auth
 import config
 import database
 import fast
+import reminders
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", level=logging.INFO
@@ -65,14 +66,16 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await ctx.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
     # 2) Fast-path local (sem IA) -> 3) IA como fallback
-    graficos = []
+    graficos, docs = [], []
     try:
         local = fast.try_handle(texto, user["id"]) if config.FAST_PATH else None
         if local is not None:
-            resposta, graficos = local["texto"], local["charts"]
+            resposta = local["texto"]
+            graficos = local.get("charts", [])
+            docs = local.get("docs", [])
             log.info("fast-path resolveu (sem IA) p/ user %s", user["id"])
         else:
-            resposta, graficos, _ = await agent.responder(
+            resposta, graficos, docs = await agent.responder(
                 list(hist), texto, user["id"], user["nome"]
             )
     except Exception as e:
@@ -94,7 +97,18 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception:
             log.exception("Falha ao enviar gráfico %s", caminho)
         finally:
-            # gráfico já foi enviado; remove pra não acumular no disco
+            try:
+                os.remove(caminho)  # já enviado; não acumula no disco
+            except OSError:
+                pass
+
+    for caminho in docs:
+        try:
+            with open(caminho, "rb") as pdf:
+                await ctx.bot.send_document(chat_id=chat_id, document=pdf)
+        except Exception:
+            log.exception("Falha ao enviar PDF %s", caminho)
+        finally:
             try:
                 os.remove(caminho)
             except OSError:
@@ -110,6 +124,8 @@ def main():
     # /start /login /sair /cadastrar passam pelo mesmo handler (vão pro auth)
     app.add_handler(CommandHandler(["start", "login", "sair", "cadastrar"], on_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+
+    reminders.setup(app)  # lembretes automáticos (fim do dia, semanal, cofrinho)
 
     log.info("PILAS no ar (multiusuário). 🐷 Aguardando mensagens...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

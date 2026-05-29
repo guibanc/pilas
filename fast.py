@@ -10,6 +10,7 @@ import random
 import re
 import unicodedata
 
+import database
 from tools import ToolExecutor, _fmt
 
 # ----------------------------- normalização -----------------------------
@@ -171,8 +172,10 @@ _AJUDA_EXEMPLOS = (
     "\n• \"gastei 45 no mercado\"\n"
     "• \"recebi 3500 de salário\"\n"
     "• \"quanto gastei essa semana?\"\n"
-    "• \"gera um resumo do mês\"\n"
+    "• \"manda o dashboard\" (relatório em PDF)\n"
+    "• \"meta do cofrinho 1000\" / \"guardar 50 no cofrinho\" 🐖\n"
     "• \"me avisa se gastar mais de 500 em lazer\"\n"
+    "• \"lembretes\" pra ver/ajustar os avisos automáticos\n"
     "• \"quero sair\" pra deslogar"
 )
 
@@ -211,6 +214,84 @@ _MARC_ENTRADA = ["recebi", "ganhei", "caiu", "entrou", "me pag", "pagaram",
                  "salario", "freela", "vendi", "vendeu", "rendeu", "pix de"]
 
 
+_DIAS = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
+
+
+def _cof_progresso(user_id) -> str:
+    s = database.get_savings(user_id)
+    if s["meta"] and s["meta"] > 0:
+        pct = min(100, s["total"] / s["meta"] * 100)
+        falta = max(0.0, s["meta"] - s["total"])
+        return (f"🐖 Cofrinho: {_fmt(s['total'])} de {_fmt(s['meta'])} "
+                f"({pct:.0f}%). Faltam {_fmt(falta)}.")
+    if s["total"]:
+        return f"🐖 Cofrinho: {_fmt(s['total'])} guardados (sem meta definida)."
+    return "🐖 Seu cofrinho tá vazio. Define uma meta: \"meta do cofrinho 1000\"."
+
+
+def _cofrinho(n, msg, user_id) -> str:
+    val = parse_valor(msg)
+    if ("meta" in n or "criar" in n or "definir" in n) and val:
+        database.set_savings_meta(user_id, val)
+        return f"Meta definida! 🐖 {_cof_progresso(user_id)}"
+    if val and any(k in n for k in ["tirar", "tira", "saca", "sacar", "resgatar", "retirar"]):
+        total = database.add_savings(user_id, -val)
+        return f"Tirei {_fmt(val)} do cofrinho. Total agora: {_fmt(total)}."
+    if val:  # guardar/depositar (default quando tem valor)
+        total = database.add_savings(user_id, val)
+        extra = ""
+        s = database.get_savings(user_id)
+        if s["meta"] and total >= s["meta"]:
+            extra = " 🎉 Bateu a meta!"
+        return f"Guardado! 🐖 +{_fmt(val)} no cofrinho. Total: {_fmt(total)}.{extra}"
+    return _cof_progresso(user_id)
+
+
+def _lembrete(n, user_id) -> str:
+    p = database.get_prefs(user_id)
+    ligar = any(k in n for k in ["ligar", "liga", "ativar", "ativa", " on"])
+    desligar = any(k in n for k in ["desligar", "desliga", "desativar", "desativa",
+                                    " off", "para", "parar", "cancela"])
+    m_hora = re.search(r"(\d{1,2})\s*h|as (\d{1,2})|às (\d{1,2})", n)
+    hora = None
+    if m_hora:
+        hora = int(next(g for g in m_hora.groups() if g))
+
+    alvo = None
+    if "diario" in n or "dia" in n:
+        alvo = "daily"
+    elif "semanal" in n or "semana" in n:
+        alvo = "weekly"
+    elif "cofrinho" in n:
+        alvo = "cofrinho"
+
+    if alvo:
+        if desligar:
+            database.set_pref(user_id, alvo, 0)
+        elif ligar:
+            database.set_pref(user_id, alvo, 1)
+        if hora is not None and 0 <= hora <= 23:
+            campo = {"daily": "daily_hour", "weekly": "weekly_hour", "cofrinho": "cof_hour"}[alvo]
+            database.set_pref(user_id, campo, hora)
+            database.set_pref(user_id, alvo, 1)
+        return _status_lembretes(user_id)
+
+    return _status_lembretes(user_id)
+
+
+def _status_lembretes(user_id) -> str:
+    p = database.get_prefs(user_id)
+    onoff = lambda x: "ligado" if x else "desligado"
+    return (
+        "🔔 Seus lembretes:\n"
+        f"• Fim do dia: {onoff(p['daily'])} (às {p['daily_hour']}h)\n"
+        f"• Semanal: {onoff(p['weekly'])} ({_DIAS[p['weekly_day']]} às {p['weekly_hour']}h)\n"
+        f"• Cofrinho: {onoff(p['cofrinho'])} ({_DIAS[p['cof_day']]} às {p['cof_hour']}h)\n\n"
+        "Pra mudar: \"lembrete diario 22h\", \"lembrete semanal off\", "
+        "\"lembrete cofrinho on\"."
+    )
+
+
 def try_handle(mensagem: str, user_id: int):
     msg = mensagem.strip()
     n = _norm(msg)
@@ -228,8 +309,25 @@ def try_handle(mensagem: str, user_id: int):
     if n in _SMALLTALK:
         return {"texto": _SMALLTALK[n], "charts": []}
 
+    # Lembretes 🔔 (checa antes do cofrinho: "lembrete cofrinho off")
+    if "lembrete" in n:
+        return {"texto": _lembrete(n, user_id), "charts": []}
+
+    # Cofrinho 🐖
+    if "cofrinho" in n:
+        return {"texto": _cofrinho(n, msg, user_id), "charts": []}
+
+    tem_dash = any(k in n for k in ["dashboard", "relatorio", "painel", "pdf"])
     tem_chart = any(k in n for k in ["grafico", "gera um", "gera o", "comparativo",
                                      "compara", "por dia", "evolucao"])
+
+    # Dashboard em PDF
+    if tem_dash:
+        ex = ToolExecutor(user_id)
+        txt = ex.run("generate_dashboard", {"periodo": detectar_periodo(n)})
+        if ex.docs:
+            return {"texto": "Teu relatório saiu 📊👇", "charts": [], "docs": ex.docs}
+        return {"texto": txt, "charts": [], "docs": []}
     tem_limite = any(k in n for k in ["me avisa", "me avise", "limite", "limita"])
     valor = parse_valor(msg)
 

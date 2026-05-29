@@ -41,6 +41,17 @@ CHARTS_DIR = os.getenv("CHARTS_DIR", "charts")
 # Resolve mensagens comuns localmente (sem IA) pra economizar quota. true/false
 FAST_PATH = os.getenv("FAST_PATH", "true").strip().lower() in ("1", "true", "sim", "yes")
 
+# Fuso horário pros lembretes (padrão Brasília). Cai pra GMT-3 fixo se faltar tzdata.
+_TZ_NAME = os.getenv("TZ", "America/Sao_Paulo")
+try:
+    from zoneinfo import ZoneInfo
+
+    TZ = ZoneInfo(_TZ_NAME)
+except Exception:
+    from datetime import timedelta, timezone
+
+    TZ = timezone(timedelta(hours=-3))
+
 
 def validate() -> None:
     """Garante que o essencial está configurado antes de subir o bot."""

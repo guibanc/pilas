@@ -22,6 +22,24 @@ _USERNAME_RE = re.compile(r"^[a-z0-9_]{3,20}$")
 _LOGOUT = {"sair", "quero sair", "logout", "log out", "encerrar", "deslogar",
            "sair da conta", "/sair", "tchau", "encerrar consulta"}
 
+_INTRO = (
+    "Conta criada, {nome}! 🐷✅ Deixa eu te mostrar rapidão o que dá pra fazer:\n\n"
+    "💸 Gastos: \"gastei 45 no mercado\"\n"
+    "🤑 Entradas: \"recebi 3500 de salário\"\n"
+    "📊 Consultas: \"quanto gastei essa semana?\", \"qual meu saldo?\"\n"
+    "📈 Relatórios: \"gera um gráfico\" ou \"manda o dashboard\" (PDF)\n"
+    "🐖 Cofrinho: \"meta do cofrinho 1000\", \"guardar 50 no cofrinho\"\n"
+    "🔔 Limites e lembretes: \"me avisa se gastar mais de 500 em lazer\", \"lembretes\"\n"
+    "🚪 Sair: \"quero sair\"\n\n"
+    "Eu também te mando um resumo no fim do dia e um relatório toda semana. 😉\n\n"
+    "Quer começar com um saldo inicial na conta (um valor que você vai gastando)?\n"
+    "Manda o valor (ex: 500) ou escreve \"pular\"."
+)
+
+
+def _money(v):
+    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
 
 def _norm(s: str) -> str:
     s = "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
@@ -125,14 +143,37 @@ def handle(chat_id: int, texto: str):
         if len(senha) < 4:
             return _result("Senha muito curta (mínimo 4 caracteres). Tenta de novo:")
         novo = database.create_user(data["username"], senha, data["nome"])
-        _state.pop(chat_id, None)
         if not novo:
+            _state.pop(chat_id, None)
             return _result("Ops, esse usuário acabou de ser registrado. Manda /cadastrar de novo.")
         database.set_session(chat_id, novo["id"])
+        # entra no passo de depósito inicial (com tutorial)
+        _state[chat_id] = {"step": "DEPOSIT", "data": {}}
+        return _result(_INTRO.format(nome=novo["nome"]))
+
+    if step == "DEPOSIT":
+        if n in ("nao", "não", "n", "pular", "depois", "agora nao", "agora não",
+                 "skip", "zero", "0"):
+            _state.pop(chat_id, None)
+            return _result(
+                "Beleza! Começamos do zero então. 🐷 Manda quando gastar ou receber algo."
+            )
+        from fast import parse_valor
+        from tools import ToolExecutor
+        valor = parse_valor(texto)
+        if valor is None:
+            return _result(
+                "Manda só o valor (ex: 500) pra eu lançar como saldo inicial, "
+                "ou escreve \"pular\"."
+            )
+        _state.pop(chat_id, None)
+        ToolExecutor(user["id"]).run("add_transaction", {
+            "tipo": "entrada", "valor": valor,
+            "categoria": "renda", "descricao": "saldo inicial",
+        })
         return _result(
-            f"Conta criada e você já tá logado, {novo['nome']}! 🐷✅\n"
-            "Agora é só mandar suas finanças: ex. \"gastei 45 no mercado\".\n"
-            "(Pra sair depois, manda \"quero sair\")"
+            f"Show! 💰 Comecei sua conta com {_money(valor)}. Agora é só ir "
+            "registrando os gastos que eu vou descontando. Bora! 🐷"
         )
 
     # ---- Login: usuário -> senha ----

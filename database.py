@@ -94,6 +94,27 @@ def init_db() -> None:
                 valor TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS prefs (
+                user_id     INTEGER PRIMARY KEY,
+                daily       INTEGER DEFAULT 1,
+                daily_hour  INTEGER DEFAULT 21,
+                weekly      INTEGER DEFAULT 1,
+                weekly_day  INTEGER DEFAULT 6,   -- 0=segunda ... 6=domingo
+                weekly_hour INTEGER DEFAULT 20,
+                cofrinho    INTEGER DEFAULT 1,
+                cof_day     INTEGER DEFAULT 5,    -- sábado
+                cof_hour    INTEGER DEFAULT 12,
+                last_daily  TEXT DEFAULT '',
+                last_weekly TEXT DEFAULT '',
+                last_cof    TEXT DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS savings (
+                user_id INTEGER PRIMARY KEY,
+                meta    REAL DEFAULT 0,
+                total   REAL DEFAULT 0
+            );
+
             CREATE INDEX IF NOT EXISTS idx_tx_user ON transactions(user_id, data);
             CREATE INDEX IF NOT EXISTS idx_lim_user ON limits(user_id);
             """
@@ -263,3 +284,77 @@ def get_limit_for_category(user_id, categoria):
             (user_id, categoria),
         ).fetchone()
         return dict(row) if row else None
+
+
+# ----------------------- preferências de lembrete -----------------------
+
+_PREF_DEFAULTS = {
+    "daily": 1, "daily_hour": 21, "weekly": 1, "weekly_day": 6, "weekly_hour": 20,
+    "cofrinho": 1, "cof_day": 5, "cof_hour": 12,
+    "last_daily": "", "last_weekly": "", "last_cof": "",
+}
+
+
+def get_prefs(user_id):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM prefs WHERE user_id = ?", (user_id,)).fetchone()
+        if row:
+            return dict(row)
+    p = dict(_PREF_DEFAULTS)
+    p["user_id"] = user_id
+    return p
+
+
+def set_pref(user_id, campo, valor):
+    if campo not in _PREF_DEFAULTS:
+        return
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO prefs (user_id) VALUES (?) ON CONFLICT(user_id) DO NOTHING",
+            (user_id,),
+        )
+        conn.execute(f"UPDATE prefs SET {campo} = ? WHERE user_id = ?", (valor, user_id))
+
+
+def all_user_ids():
+    with get_conn() as conn:
+        return [r["id"] for r in conn.execute("SELECT id FROM users")]
+
+
+def get_chats_for_user(user_id):
+    with get_conn() as conn:
+        return [r["chat_id"] for r in conn.execute(
+            "SELECT chat_id FROM sessions WHERE user_id = ?", (user_id,)
+        )]
+
+
+# ------------------------------- cofrinho -------------------------------
+
+def get_savings(user_id):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM savings WHERE user_id = ?", (user_id,)).fetchone()
+        return dict(row) if row else {"user_id": user_id, "meta": 0.0, "total": 0.0}
+
+
+def set_savings_meta(user_id, meta):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO savings (user_id, meta) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET meta = excluded.meta",
+            (user_id, meta),
+        )
+
+
+def add_savings(user_id, delta):
+    """Soma `delta` ao cofrinho (pode ser negativo). Retorna o novo total."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO savings (user_id, total) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING",
+            (user_id,),
+        )
+        conn.execute(
+            "UPDATE savings SET total = MAX(0, total + ?) WHERE user_id = ?",
+            (delta, user_id),
+        )
+        row = conn.execute("SELECT total FROM savings WHERE user_id = ?", (user_id,)).fetchone()
+        return row["total"]
