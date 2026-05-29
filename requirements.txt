@@ -1,0 +1,7 @@
+python-telegram-bot>=21.0
+google-genai>=1.0
+matplotlib>=3.8
+python-dotenv>=1.0
+
+# Só precisa se for usar PROVIDER=anthropic (pago):
+# anthropic>=0.50.0

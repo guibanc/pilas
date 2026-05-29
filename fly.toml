@@ -1,0 +1,23 @@
+# Configuração de deploy no Fly.io (bot via polling, com dados persistentes).
+# Troque "app" por um nome único antes de subir (ou deixe o `fly launch` gerar).
+app = "pilas-bot"
+primary_region = "gru"   # São Paulo
+
+[build]
+
+[env]
+  DB_PATH = "/data/pilas.db"
+  CHARTS_DIR = "/data/charts"
+
+# Volume persistente: o banco (pilas.db) e os gráficos sobrevivem a reinícios/deploys.
+[mounts]
+  source = "pilas_data"
+  destination = "/data"
+
+# Processo único (bot por polling — não expõe porta HTTP).
+[processes]
+  app = "python bot.py"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"   # 256mb costuma ser pouco pro matplotlib

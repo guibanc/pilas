@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.db
+charts/
+test_*
+.git/
+.gitignore
+README.md
+DEPLOY.md

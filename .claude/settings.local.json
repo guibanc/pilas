@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(DB_PATH=test_fast.db CHARTS_DIR=test_fastcharts PYTHONIOENCODING=utf-8 python -c ' *)",
+      "Bash(rm -rf test_fast.db test_fastcharts)",
+      "Bash(DB_PATH=test_auth.db CHARTS_DIR=test_authcharts PYTHONIOENCODING=utf-8 python -c ' *)",
+      "Bash(rm -rf test_auth.db test_authcharts)",
+      "Bash(ls *.db)",
+      "Bash(rm -f pilas.db)",
+      "Bash(rm -rf charts)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)"
+    ]
+  }
+}
